@@ -1,0 +1,513 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © MJH-devTW
+
+//@version=5 
+strategy("標準圖V1.6_20230703抽象網格", overlay=true, max_bars_back=5000, max_labels_count=500, max_lines_count=500)
+
+zigzag_len = input.int(6, "ZigZag Length")
+
+var float[] high_points_arr = array.new_float(5)
+var int[] high_index_arr = array.new_int(5)
+var float[] low_points_arr = array.new_float(5)
+var int[] low_index_arr = array.new_int(5)
+
+to_up = high >= ta.highest(zigzag_len)
+to_down = low <= ta.lowest(zigzag_len)
+
+trend = 1
+trend := nz(trend[1], 1)
+trend := trend == 1 and to_down ? -1 : trend == -1 and to_up ? 1 : trend
+
+last_trend_up_since = ta.barssince(to_up[1])
+low_val = ta.lowest(nz(last_trend_up_since > 0 ? last_trend_up_since : 1, 1))
+low_index = bar_index - ta.barssince(low_val == low)
+
+last_trend_down_since = ta.barssince(to_down[1])
+high_val = ta.highest(nz(last_trend_down_since > 0 ? last_trend_down_since : 1, 1))
+high_index = bar_index - ta.barssince(high_val == high)
+
+if ta.change(trend) != 0
+    if trend == 1
+        array.push(low_points_arr, low_val)
+        array.push(low_index_arr, low_index)
+    if trend == -1
+        array.push(high_points_arr, high_val)
+        array.push(high_index_arr, high_index)
+
+
+f_get_high(ind) =>
+    [array.get(high_points_arr, array.size(high_points_arr) - 1 - ind), array.get(high_index_arr, array.size(high_index_arr) - 1 - ind)]
+
+
+f_get_low(ind) =>
+    [array.get(low_points_arr, array.size(low_points_arr) - 1 - ind), array.get(low_index_arr, array.size(low_index_arr) - 1 - ind)]
+
+
+[h0, h0i] = f_get_high(0)
+[l0, l0i] = f_get_low(0)
+[h1, h1i] = f_get_high(1)
+[l1, l1i] = f_get_low(1)
+[h2, h2i] = f_get_high(2)
+[l2, l2i] = f_get_low(2)
+
+peakarea  = input.float(0.15, "第一個尖點向右對過去 =>進場觀察區  上下的比例")
+HH2LL_len = input.float(0.5, "第一到第二個尖點的距離+第一距離=>反轉觀察區  上下的比例")
+
+
+plot_bull = input.bool(true, "繪製多方破底翻")
+plot_bear = input.bool(false,"繪製空方破底翻")
+showDebug = input(false)
+
+bull_equalH2L = high_val>((math.abs(h0-l0)+h0)-(math.abs(high_val-l0)*HH2LL_len)) and high_val<((math.abs(h0-l0)+h0)+(math.abs(high_val-l0)*HH2LL_len))   //多方 
+bear_equalH2L = low_val >(l0-math.abs(h0-l0))-(math.abs(low_val-h0 )*HH2LL_len) and low_val< ((l0-math.abs(h0-l0))+(math.abs(low_val-h0))*HH2LL_len)   //空方
+
+bear_inarea = (close[1]>l0-math.abs(low_val-h0)*peakarea)  and (close[1]<l0+math.abs(low_val-h0)*peakarea)  //空方要收在觀察區內
+bull_inarea = (close[1]>h0-math.abs(high_val-l0)*peakarea) and (close[1]<h0+math.abs(high_val-l0)*peakarea) //多方要收在觀察區內
+
+
+//bear_cond = trend == -1 and h2 > h1 and l1 > l0 and h0 > h1 and close > l1    //空方
+//bull_cond = trend ==  1 and l2 < l1 and h1 < h0 and l0 < l1 and close < h1    //多方
+bear_cond = trend == -1 and h0>l0 and low_val<l0  and close[1] > low_val  and close[1]<h0 and bear_equalH2L and bear_inarea  and (bar_index-high_index)>1   //空方
+bull_cond = trend ==  1 and h0>l0 and high_val>h0 and close[1] < high_val and close[1]>l0 and bull_equalH2L and bull_inarea  and (bar_index-high_index)>1   //多方
+//if(ta.barssince(bull_cond)<2 and close>open )
+
+//bullcheck = ((ta.barssince(bull_cond)<2) and (close>open) and (close< (h0+high_val)/2))
+//符合第一階段標準圖 + 打勾收紅K + 打勾收的位置在右側高低點一半以下 + 打勾那根K的上引線必須要<該根一半以下 + 打勾這根的高不是最高
+bullcheck1st = ((ta.barssince(bull_cond)<3) and (close[1]>open[1]) and (close[1]< (h0+high_val)/2) and (high[1]-close[1])<(high[1]-low[1])/2) and (high_index!=bar_index)
+bullcheck2st = ta.barssince(bullcheck1st[1])>zigzag_len and bullcheck1st
+
+if(showDebug)
+    label.new(h0i, h0,"h0",style=label.style_label_down, size=size.tiny ,color=color.rgb(177, 60, 167))
+    label.new(l0i, l0,"l0",style=label.style_label_up  , size=size.tiny ,color=color.rgb(60, 177, 157))
+    label.new(h1i, h1,"h1",style=label.style_label_down, size=size.tiny ,color=color.rgb(177, 60, 167))
+    label.new(l1i, l1,"l1",style=label.style_label_up  , size=size.tiny ,color=color.rgb(60, 177, 157))
+    label.new(h2i, h2,"h2",style=label.style_label_down, size=size.tiny ,color=color.rgb(177, 60, 167))
+    label.new(l2i, l2,"l2",style=label.style_label_up  , size=size.tiny ,color=color.rgb(60, 177, 157))
+
+if bear_cond and not bear_cond[1] and plot_bear
+    //line.new(h2i, h2, l1i, l1, color=color.green, width=1)          //第1條線(下)
+    //line.new(l1i, l1, h1i, h1, color=color.green, width=2)          //第2條線(上)
+    //line.new(h1i, h1, l0i, l0, color=color.green, width=3)          //第3條線(下)
+    line.new(l0i, l0, h0i, h0, color=color.green, width=1)          //上
+    line.new(h0i, h0, low_index, low_val, color=color.green, width=1)   //下
+    line.new(low_index, low_val, bar_index, l0, color=color.green, width=2)          //上
+    line.new(l0i, l0, bar_index, l0, color=chart.fg_color, width=1,style=line.style_dashed)    //水平線
+    //label.new(bar_index, l0, "空", style=label.style_label_up, textcolor=color.white, color=color.green, size=size.tiny)
+    //alert("Bullish QM!", alert.freq_once_per_bar)
+    //label.new(l0i, l0,"LL",style=label.style_label_up  , size=size.tiny ,color=color.lime)
+    //label.new(h0i, h0,"HH",style=label.style_label_down, size=size.tiny ,color=color.lime)
+
+//多方標準圖
+if bull_cond and not bull_cond[1] and plot_bull
+    //line.new(l2i, l2, h1i, h1, color=color.red, width=2)
+    //line.new(h1i, h1, l1i, l1, color=color.red, width=2)
+    //line.new(l1i, l1, h0i, h0, color=color.red, width=2)
+    line.new(h0i, h0, l0i, l0, color=color.red, width=1)                //下
+    line.new(l0i, l0,high_index, high_val, color=color.red, width=1)    //上
+    line.new(high_index, high_val, bar_index, close, color=color.red, width=2)                //下
+    line.new(h0i, h0, bar_index, h0, color=chart.fg_color, width=1,style=line.style_dashed)          //水平線
+    //label.new(bar_index, h0, "多", style=label.style_label_down, textcolor=color.white, color=color.red, size=size.tiny)
+    //alert("Bearish QM!", alert.freq_once_per_bar)
+    //label.new(l0i, l0,"LL",style=label.style_label_up  , size=size.tiny ,color=color.red)
+    //label.new(h0i, h0,"HH",style=label.style_label_down, size=size.tiny ,color=color.red)
+    
+
+
+
+boxKrange = input.int(60,"發生訊號時往左邊找__根K棒",minval=20, maxval=300, step=10)
+plot_bull_grid_1 = input.bool(true, "way1_先跌盤整後打勾")     //先跌一陣子 盤整後再出現打勾標準圖
+plot_bull_grid_2 = input.bool(true, "way2_先盤整突破後打勾")   //先盤整突破後打勾標準圖
+//先跌一陣子 盤整後再出現打勾標準圖 + 出現標準圖
+boxh1 = ta.highest(high,boxKrange)
+boxh1i = ta.highestbars(high,boxKrange)
+boxl0 = ta.lowest(low,boxKrange)
+boxl0i = ta.lowestbars(low,boxKrange)
+
+// 输入变量来接收颜色值
+//C_OK = input(color.rgb(194, 24, 92, 90), "Fill Color __ 很OK !!")
+//N_OK = input(color.rgb(0, 213, 192, 60), "Fill Color __ 不 OK !!")
+//O_OK = input(color.rgb(120, 122, 120, 83), "Fill Color __ 都 OK !!")
+C_OK = color.rgb(194, 24, 92, 90)   // "Fill Color __ 很OK !!")
+N_OK = color.rgb(0, 213, 192, 80)   //"Fill Color __ 不 OK !!")
+O_OK = color.rgb(120, 122, 120, 80) //"Fill Color __ 都 OK !!")
+BoxOutline = color.rgb(159, 191, 216, 80)   //12格的外框
+BoxInline  = color.rgb(247, 214, 94, 80)    //12格的分隔線
+
+lengthbull_grid_1 = input(30, "MA長度__先跌盤整後打勾")
+//mabull_grid_1 = ta.sma(close, lengthbull_grid_1)
+mabull_grid_1 = plot_bull_grid_1 ? ta.sma(close, lengthbull_grid_1) : na
+plot(mabull_grid_1, color=color.rgb(243, 215, 33), linewidth=2, title="Moving Average")
+
+lengthbull_grid_2 = input(60, "MA長度__先盤整突破後打勾")
+//mabull_grid_2 = ta.sma(close, lengthbull_grid_2)
+mabull_grid_2 = plot_bull_grid_2 ? ta.sma(close, lengthbull_grid_2) : na
+plot(mabull_grid_2, color=color.rgb(243, 93, 33), linewidth=2, title="Moving Average")
+
+
+DebugM = input.bool(false, "梵谷Debug Mode")   //
+//判断一个点是否在一个矩形内部
+isPointInsideRectangle(x1, x2, p3, p4) =>
+    inside = false
+    for i =  bar_index-x2+1 to bar_index-x1
+        if close[i] >= p3 and close[i] <= p4
+            inside := true
+    inside
+
+
+ThisPlotIsFalse = false ////如果出現在 "不能出現的模板位置" 則代表不能進場
+box_ma_checkedisOK = false//經過模板檢查和MA檢查後 ,會=true
+
+if( bullcheck2st )
+    if(boxh1i < boxl0i and plot_bull_grid_1 )
+
+        labelYPos = boxh1 * 1.0002 // 將標籤放置在最高價格的上方
+        semih1i = (bar_index+boxh1i+bar_index)/2
+        label.new(x=semih1i, y=labelYPos, text='先跌盤整後打勾', color=color.new(#af4c5e ,0), textcolor =color.white)
+
+        line.new(bar_index+boxh1i, boxh1, bar_index, boxh1, color=BoxOutline, width=1, style=line.style_solid)  // 上外框 水平线
+        line.new(bar_index+boxh1i, boxl0, bar_index, boxl0, color=BoxOutline, width=1, style=line.style_solid)  // 下外框 水平线
+        line.new(bar_index+boxh1i, boxh1, bar_index+boxh1i, boxl0, color=BoxOutline, width=1,style=line.style_solid)                //左外框 垂直線
+        line.new(bar_index, boxh1, bar_index, boxl0, color=BoxOutline, width=1,style=line.style_solid)    //右外框 垂直線
+
+        line.new(bar_index+boxh1i, (close[1]+boxh1)/2, bar_index, (close[1]+boxh1)/2, color=BoxInline, width=1,style=line.style_solid)          //上 水平線
+        line.new(bar_index+boxh1i, (close[1]+boxl0)/2, bar_index, (close[1]+boxl0)/2, color=BoxInline, width=1,style=line.style_solid)          //下 水平線
+
+        line.new(semih1i, boxh1, semih1i, boxl0, color=BoxInline, width=1,style=line.style_solid)                                            //中1 垂直線
+        line.new((semih1i+bar_index+boxh1i)/2, boxh1, (semih1i+bar_index+boxh1i)/2, boxl0, color=BoxInline, width=1,style=line.style_solid)  //左1 垂直線 
+        line.new((semih1i+bar_index)/2, boxh1, (semih1i+bar_index)/2, boxl0, color=BoxInline, width=1,style=line.style_solid)                //右1 垂直線 
+        //fill area
+        x1 = bar_index+boxh1i
+        x2 = (semih1i+bar_index+boxh1i)/2
+        x3 = semih1i
+        x4 = (semih1i+bar_index)/2
+        x5 = bar_index
+        p1 = boxl0
+        p2 = (close[1]+boxl0)/2
+        p3 = (close[1]+boxh1)/2
+        p4 = boxh1
+        linec = BoxOutline
+        line1 = line.new(x1,p4,x2,p4, color=linec, width=1, style=line.style_solid)
+        line2 = line.new(x2,p4,x3,p4, color=linec, width=1, style=line.style_solid)
+        line3 = line.new(x3,p4,x4,p4, color=linec, width=1, style=line.style_solid)
+        line4 = line.new(x4,p4,x5,p4, color=linec, width=1, style=line.style_solid)
+        line5 = line.new(x1,p3,x2,p3, color=linec, width=1, style=line.style_solid)
+        line6 = line.new(x2,p3,x3,p3, color=linec, width=1, style=line.style_solid)
+        line7 = line.new(x3,p3,x4,p3, color=linec, width=1, style=line.style_solid)
+        line8 = line.new(x4,p3,x5,p3, color=linec, width=1, style=line.style_solid)
+        line9 = line.new(x1,p2,x2,p2, color=linec, width=1, style=line.style_solid)
+        line10= line.new(x2,p2,x3,p2, color=linec, width=1, style=line.style_solid)
+        line11= line.new(x3,p2,x4,p2, color=linec, width=1, style=line.style_solid)
+        line12= line.new(x4,p2,x5,p2, color=linec, width=1, style=line.style_solid)
+        line13= line.new(x1,p1,x2,p1, color=linec, width=1, style=line.style_solid)
+        line14= line.new(x2,p1,x3,p1, color=linec, width=1, style=line.style_solid)
+        line15= line.new(x3,p1,x4,p1, color=linec, width=1, style=line.style_solid)
+        line16= line.new(x4,p1,x5,p1, color=linec, width=1, style=line.style_solid)
+
+        // 使用fill()函数填充两条线之间的区域
+        linefill1_5 = linefill.new(line1, line5, color = C_OK)//---
+        linefill2_6 = linefill.new(line2, line6, color = N_OK)
+        linefill3_7 = linefill.new(line3, line7, color = N_OK)
+        linefill4_8 = linefill.new(line4, line8, color = N_OK)
+        linefill5_9 = linefill.new(line5, line9, color = C_OK)//---
+        linefill6_10= linefill.new(line6, line10, color = C_OK)
+        linefill7_11= linefill.new(line7, line11, color = C_OK)
+        linefill8_12= linefill.new(line8, line12, color = C_OK)
+        linefill9_13 = linefill.new(line9, line13, color = N_OK)//---
+        linefill10_14= linefill.new(line10, line14, color = O_OK)
+        linefill11_15= linefill.new(line11, line15, color = O_OK)
+        linefill12_16= linefill.new(line12, line16, color = O_OK)
+        // 判断点是否在矩形内部
+        insideRectangle1 = isPointInsideRectangle(x1, x2, p3, p4) //Area 1 第一排 左上
+        insideRectangle2 = isPointInsideRectangle(x2, x3, p3, p4) //Area 2 
+        insideRectangle3 = isPointInsideRectangle(x3, x4, p3, p4) //Area 3 
+        insideRectangle4 = isPointInsideRectangle(x4, x5, p3, p4) //Area 4 右上
+        insideRectangle5 = isPointInsideRectangle(x1, x2, p2, p3) //Area 5 第2排 左側
+        insideRectangle6 = isPointInsideRectangle(x2, x3, p2, p3) //Area 6 
+        insideRectangle7 = isPointInsideRectangle(x3, x4, p2, p3) //Area 7 
+        insideRectangle8 = isPointInsideRectangle(x4, x5, p2, p3) //Area 8 第2排 右側
+        insideRectangle9 = isPointInsideRectangle(x1, x2, p1, p2) //Area 9 第3排 左側
+        insideRectangle10= isPointInsideRectangle(x2, x3, p1, p2) //Area 10 
+        insideRectangle11= isPointInsideRectangle(x3, x4, p1, p2) //Area 11
+        insideRectangle12= isPointInsideRectangle(x4, x5, p1, p2) //Area 12第3排 右側
+        //如果出現在 "不能出現的模板位置" 則代表不能進場
+        ThisPlotIsFalse := insideRectangle2 or insideRectangle3 or insideRectangle4 or insideRectangle9
+        if(ThisPlotIsFalse)
+            label.new(x=x5, y=labelYPos, text='NO ', color=color.new(#af4c5e ,0), textcolor =color.white)
+        else
+            if( close[1]>mabull_grid_1[1])
+                label.new(x=x5, y=labelYPos, text='YES', color=color.new(#4c74af, 0), textcolor =color.white)
+                box_ma_checkedisOK:=true    //可以下單
+            else
+                label.new(x=x5, y=labelYPos, text='框YES,均線NO', color=color.new(#afad4c, 0), textcolor =color.white)   
+        // 标记点是否在矩形内部
+        //label.new(x1, p3, ""+str.tostring(x1)+", "+str.tostring(p3), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(x2, p3, ""+str.tostring(x2)+", "+str.tostring(p3), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(x1, p4, ""+str.tostring(x1)+", "+str.tostring(p4), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(x2, p4, ""+str.tostring(x2)+", "+str.tostring(p4), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(bar_index, p3, ""+str.tostring(bar_index)+", "+str.tostring(close[bar_index-x1]), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(bar_index, p4, ""+str.tostring(bar_index)+", "+str.tostring(close[bar_index-x2+1]), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        if(DebugM)
+            if insideRectangle1 
+                label.new(x1, p3, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle2 
+                label.new(x2, p3, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle3
+                label.new(x3, p3, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle4
+                label.new(x4, p3, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle5 
+                label.new(x1, p2, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle6 
+                label.new(x2, p2, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle7
+                label.new(x3, p2, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle8
+                label.new(x4, p2, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle9 
+                label.new(x1, p1, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle10 
+                label.new(x2, p1, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle11
+                label.new(x3, p1, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle12
+                label.new(x4, p1, "In", color = color.new(color.green, 0), style = label.style_label_up)
+
+    else if(boxh1i > boxl0i and plot_bull_grid_2 )
+        labelYPos = boxl0 * 0.9998 // 將標籤放置在最高價格的下方
+        semil0i = (bar_index+boxl0i+bar_index)/2
+        label.new(x=semil0i, y=labelYPos, text='先盤整突破後打勾', color=color.rgb(243, 93, 33, 40), textcolor =color.white, style=label.style_label_up)
+        line.new(bar_index+boxl0i, boxh1, bar_index, boxh1, color=BoxOutline, width=1, style=line.style_solid)  // 上外框 水平线
+        line.new(bar_index+boxl0i, boxl0, bar_index, boxl0, color=BoxOutline, width=1, style=line.style_solid)  // 下外框 水平线
+        line.new(bar_index+boxl0i, boxh1, bar_index+boxl0i, boxl0, color=BoxOutline, width=1,style=line.style_solid)                //左外框 垂直線
+        line.new(bar_index, boxh1, bar_index, boxl0, color=BoxOutline, width=1,style=line.style_solid)    //右外框 垂直線
+
+        line.new(bar_index+boxl0i, (close[1]+boxh1)/2, bar_index, (close[1]+boxh1)/2, color=BoxInline, width=1,style=line.style_solid)          //上 水平線
+        line.new(bar_index+boxl0i, (close[1]+boxl0)/2, bar_index, (close[1]+boxl0)/2, color=BoxInline, width=1,style=line.style_solid)          //下 水平線
+
+        line.new(semil0i, boxh1, semil0i, boxl0, color=BoxInline, width=1,style=line.style_solid)                                            //中1 垂直線
+        line.new((semil0i+bar_index+boxl0i)/2, boxh1, (semil0i+bar_index+boxl0i)/2, boxl0, color=BoxInline, width=1,style=line.style_solid)  //左1 垂直線 
+        line.new((semil0i+bar_index)/2, boxh1, (semil0i+bar_index)/2, boxl0, color=BoxInline, width=1,style=line.style_solid)                //右1 垂直線 
+        //fill area
+        x1 = bar_index+boxl0i
+        x2 = (semil0i+bar_index+boxl0i)/2
+        x3 = semil0i
+        x4 = (semil0i+bar_index)/2
+        x5 = bar_index
+        p1 = boxl0
+        p2 = (close[1]+boxl0)/2
+        p3 = (close[1]+boxh1)/2
+        p4 = boxh1
+        linec = BoxOutline
+        line1 = line.new(x1,p4,x2,p4, color=linec, width=1, style=line.style_solid)
+        line2 = line.new(x2,p4,x3,p4, color=linec, width=1, style=line.style_solid)
+        line3 = line.new(x3,p4,x4,p4, color=linec, width=1, style=line.style_solid)
+        line4 = line.new(x4,p4,x5,p4, color=linec, width=1, style=line.style_solid)
+        line5 = line.new(x1,p3,x2,p3, color=linec, width=1, style=line.style_solid)
+        line6 = line.new(x2,p3,x3,p3, color=linec, width=1, style=line.style_solid)
+        line7 = line.new(x3,p3,x4,p3, color=linec, width=1, style=line.style_solid)
+        line8 = line.new(x4,p3,x5,p3, color=linec, width=1, style=line.style_solid)
+        line9 = line.new(x1,p2,x2,p2, color=linec, width=1, style=line.style_solid)
+        line10= line.new(x2,p2,x3,p2, color=linec, width=1, style=line.style_solid)
+        line11= line.new(x3,p2,x4,p2, color=linec, width=1, style=line.style_solid)
+        line12= line.new(x4,p2,x5,p2, color=linec, width=1, style=line.style_solid)
+        line13= line.new(x1,p1,x2,p1, color=linec, width=1, style=line.style_solid)
+        line14= line.new(x2,p1,x3,p1, color=linec, width=1, style=line.style_solid)
+        line15= line.new(x3,p1,x4,p1, color=linec, width=1, style=line.style_solid)
+        line16= line.new(x4,p1,x5,p1, color=linec, width=1, style=line.style_solid)
+
+        // 使用fill()函数填充两条线之间的区域
+        linefill1_5 = linefill.new(line1, line5, color = N_OK)//---
+        linefill2_6 = linefill.new(line2, line6, color = N_OK)
+        linefill3_7 = linefill.new(line3, line7, color = N_OK)
+        linefill4_8 = linefill.new(line4, line8, color = C_OK)
+        linefill5_9 = linefill.new(line5, line9, color = O_OK)//---
+        linefill6_10= linefill.new(line6, line10, color = C_OK)
+        linefill7_11= linefill.new(line7, line11, color = O_OK)
+        linefill8_12= linefill.new(line8, line12, color = C_OK)
+        linefill9_13 = linefill.new(line9, line13, color = C_OK)//---
+        linefill10_14= linefill.new(line10, line14, color = N_OK)
+        linefill11_15= linefill.new(line11, line15, color = N_OK)
+        linefill12_16= linefill.new(line12, line16, color = N_OK)
+        // 判断点是否在矩形内部
+        insideRectangle1 = isPointInsideRectangle(x1, x2, p3, p4) //Area 1 第一排 左上
+        insideRectangle2 = isPointInsideRectangle(x2, x3, p3, p4) //Area 2 
+        insideRectangle3 = isPointInsideRectangle(x3, x4, p3, p4) //Area 3 
+        insideRectangle4 = isPointInsideRectangle(x4, x5, p3, p4) //Area 4 右上
+        insideRectangle5 = isPointInsideRectangle(x1, x2, p2, p3) //Area 5 第2排 左側
+        insideRectangle6 = isPointInsideRectangle(x2, x3, p2, p3) //Area 6 
+        insideRectangle7 = isPointInsideRectangle(x3, x4, p2, p3) //Area 7 
+        insideRectangle8 = isPointInsideRectangle(x4, x5, p2, p3) //Area 8 第2排 右側
+        insideRectangle9 = isPointInsideRectangle(x1, x2, p1, p2) //Area 9 第3排 左側
+        insideRectangle10= isPointInsideRectangle(x2, x3, p1, p2) //Area 10 
+        insideRectangle11= isPointInsideRectangle(x3, x4, p1, p2) //Area 11
+        insideRectangle12= isPointInsideRectangle(x4, x5, p1, p2) //Area 12第3排 右側
+        //如果出現在 "不能出現的模板位置" 則代表不能進場
+        ThisPlotIsFalse := insideRectangle1 or insideRectangle2 or insideRectangle3 or insideRectangle10 or insideRectangle11 or insideRectangle12 
+        if(ThisPlotIsFalse)
+            label.new(x=x5, y=labelYPos, text='NO ', color=color.rgb(243, 93, 33, 40), textcolor =color.white, style=label.style_label_up)
+        else
+            if( close[1]>mabull_grid_2[1])
+                label.new(x=x5, y=labelYPos, text='YES', color=color.new(#4c74af, 0), textcolor =color.white, style=label.style_label_up)
+                box_ma_checkedisOK:=true    //可以下單
+            else
+                label.new(x=x5, y=labelYPos, text='框YES,均線NO', color=color.new(#afad4c, 0), textcolor =color.white, style=label.style_label_up)
+        // 标记点是否在矩形内部
+        //label.new(x1, p3, ""+str.tostring(x1)+", "+str.tostring(p3), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(x2, p3, ""+str.tostring(x2)+", "+str.tostring(p3), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(x1, p4, ""+str.tostring(x1)+", "+str.tostring(p4), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(x2, p4, ""+str.tostring(x2)+", "+str.tostring(p4), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(bar_index, p3, ""+str.tostring(bar_index)+", "+str.tostring(close[bar_index-x1]), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        //label.new(bar_index, p4, ""+str.tostring(bar_index)+", "+str.tostring(close[bar_index-x2+1]), color = color.new(color.green, 0), style = label.style_label_left,size=size.tiny)
+        if(DebugM)
+            if insideRectangle1 
+                label.new(x1, p3, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle2 
+                label.new(x2, p3, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle3
+                label.new(x3, p3, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle4
+                label.new(x4, p3, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle5 
+                label.new(x1, p2, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle6 
+                label.new(x2, p2, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle7
+                label.new(x3, p2, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle8
+                label.new(x4, p2, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle9 
+                label.new(x1, p1, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle10 
+                label.new(x2, p1, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle11
+                label.new(x3, p1, "In", color = color.new(color.green, 0), style = label.style_label_up)
+            if insideRectangle12
+                label.new(x4, p1, "In", color = color.new(color.green, 0), style = label.style_label_up)
+    //line.new(h1i, h1, bar_index, h1, color=color.rgb(159, 191, 216, 37), width=1,style=line.style_solid)          //上外框 水平線
+    //line.new(h1i, l0, bar_index, l0, color=color.rgb(159, 191, 216, 37), width=1,style=line.style_solid)          //下外框 水平線
+    //line.new(h1i, h1, h1i, l0, color=color.rgb(159, 191, 216, 37), width=1,style=line.style_solid)                //左外框 垂直線
+    //line.new(bar_index, h1, bar_index, l0, color=color.rgb(159, 191, 216, 37), width=1,style=line.style_solid)    //右外框 垂直線
+
+    //line.new(h1i, (close[1]+h1)/2, bar_index, (close[1]+h1)/2, color=color.rgb(247, 214, 94, 44), width=1,style=line.style_solid)          //上 水平線
+    //line.new(h1i, (close[1]+l0)/2, bar_index, (close[1]+l0)/2, color=color.rgb(247, 214, 94, 44), width=1,style=line.style_solid)          //下 水平線
+    //line.new((h1i+bar_index)/2, h1, (h1i+bar_index)/2, l0, color=color.rgb(247, 214, 94, 44), width=1,style=line.style_solid)                //中1 垂直線
+    //line.new(((h1i+bar_index)/2+h1i)/2, h1, ((h1i+bar_index)/2+h1i)/2, l0, color=color.rgb(247, 214, 94, 44), width=1,style=line.style_solid)                //左1 垂直線 
+    //line.new(((h1i+bar_index)/2+bar_index)/2, h1, ((h1i+bar_index)/2+bar_index)/2, l0, color=color.rgb(247, 214, 94, 44), width=1,style=line.style_solid)                //右1 垂直線 
+
+
+//strategy.exit("exit", "Long", profit = 500, loss = 500) 
+// 計算最小步長
+
+   
+//strategy.exit("exit", "Long", profit = TP/tickSize*2, loss = SL/tickSize*2) 
+//-------------------------------------------------------------------------------------------
+//劃出停損區 = (低點+底底高確認後) /2
+
+
+
+
+// 输入下单比例
+equityPercentage = input.float(0.2, "下單量佔餘額__")  // 20%的比例
+
+// 计算下单数量
+orderQty = math.round(strategy.initial_capital * equityPercentage / close)  // 基于初始资本的一部分计算下单数量
+
+
+// 定义变量
+var float SL = na
+var float TP = na
+var float stopLossPrice = na
+var float takeProfitPrice = na
+var float tickSize = syminfo.mintick
+
+// 入场条件
+//bullcheck2st = // your condition here
+
+// 计算止损和止盈价格
+if bullcheck2st and box_ma_checkedisOK and not strategy.position_size
+    SL := close[1] - (l0 + close[1]) / 2  // 计算止损点数
+    TP := SL * 3  // 计算止盈点数
+    stopLossPrice := close[1] - SL  // 设置停损价格
+    takeProfitPrice := close[1] + TP  // 设置停盈价格
+    line.new(l0i, stopLossPrice  , bar_index, stopLossPrice,   color=color.rgb(94, 247, 100, 44), width=3,style=line.style_dotted)          //水平線
+    line.new(l0i, takeProfitPrice, bar_index, takeProfitPrice, color=color.rgb(247, 94, 94, 44) , width=3,style=line.style_dotted)          //水平線
+    // 入场逻辑
+    strategy.entry("Long", strategy.long, qty=100000, stop=stopLossPrice, limit=takeProfitPrice)
+
+// 出场逻辑
+strategy.exit("exit", "Long", profit=int(TP / tickSize), loss=int(SL / tickSize))
+
+
+
+//-------------------------------------------------------------------------------------------
+
+plotshape(bullcheck2st, "secondfixed", shape.triangleup, location.belowbar,color=color.new(#a400f6, 0),size=size.normal)  
+
+
+plotshape(bear_cond and not bear_cond[1] and plot_bear, "Dn", shape.triangledown,location.abovebar,color=color.new(color.green,0),size=size.small)
+plotshape(bull_cond and not bull_cond[1] and plot_bull, "Up", shape.triangleup, location.belowbar,color=color.new(#f60000, 0),size=size.small)
+
+//alertcondition(bear_cond and not bear_cond[1] and plot_bear , title='', message='bear_cond DN !!')
+//alertcondition(bull_cond and not bull_cond[1] and plot_bull , title='', message='bull_cond UP !!')
+
+//alertcondition(bull_cond and not bull_cond[1] and plot_bull , title='', message='bull_cond UP !!')
+
+year_ = year(time)
+month_ = month(time)
+day = dayofmonth(time)
+hor = hour(time)
+min = minute(time)
+sec = second(time)
+// 将数字转换为两位数的字符串
+Year    = str.tostring(year_ < 10 ? "0" + str.tostring(year_) : str.tostring(year_))
+Month    = str.tostring(month_ < 10 ? "0" + str.tostring(month_) : str.tostring(month_))
+Day    = str.tostring(day < 10 ? "0" + str.tostring(day) : str.tostring(day))
+Hour   = str.tostring(hor < 10 ? "0" + str.tostring(hor) : str.tostring(hor))
+Minute = str.tostring(min < 10 ? "0" + str.tostring(min) : str.tostring(min))
+Second = str.tostring(sec < 10 ? "0" + str.tostring(sec) : str.tostring(sec))
+// 创建日期时间对象
+stringtime = str.tostring(Year)+"-"+str.tostring(Month)+"-"+str.tostring(Day)+"T"+str.tostring(Hour)+":"+str.tostring(Minute)+":"+str.tostring(Second)+"Z"
+stringmsg = '{"ticker":"'+str.tostring(syminfo.ticker)+'","time":"'+str.tostring(stringtime)+'","price":'+str.tostring(stopLossPrice)+',"tag":"long"}'
+if(bullcheck2st)
+    alert(stringmsg)
+
+
+showAutoScreen = input.bool(true,"螢幕自動截圖")
+//AutoScreenflag = (ta.barssince(bullcheck2st[0]) > boxKrange) and  (ta.barssince(bullcheck2st[0]) <(boxKrange +2))
+
+var t = table.new(position.top_right, 1, 2, bgcolor = color.blue)
+
+var int entryBarIndex = na
+var bool entryBarlock = false
+if (showAutoScreen and bullcheck2st)
+    entryBarIndex := bar_index
+    entryBarlock:= false
+    //if (na(entryBarIndex))
+    //    entryBarIndex := bar_index
+
+if (bar_index - entryBarIndex >= 10)
+    table.cell(t, 0, 0, text =str.tostring(entryBarIndex), bgcolor = color.red)
+    table.cell(t, 0, 1, text =str.tostring(bar_index ), bgcolor = color.gray)
+    entryBarIndex := bar_index
+    entryBarlock  := true
+else
+    table.cell(t, 0, 0, text =str.tostring(entryBarIndex), bgcolor = color.blue)
+    table.cell(t, 0, 1, text =str.tostring(bar_index ), bgcolor = color.gray)
+
+if(entryBarlock )
+    entryBarIndex := bar_index
+
+
+
+
+
+// 获取当前商品的名称和时间周期
+//if(bullcheck2st)
+//    alert (""+str.tostring(syminfo.ticker) + " 標準圖做多 , Time:"+str.tostring(timeframe.period)+", Price: " + str.tostring(close)+" , SL: "+str.tostring(stopLossPrice))
+//MSG = (" 標準圖做多 , Time:"+str.tostring(timeframe.period)+", Price: " + str.tostring(close)+" , SL: "+str.tostring(stopLossPrice))
+//alertcondition(bullcheck2st,title = "Price Alert", message = MSG)
+
+// 获取当前商品的代码（ticker）
+//"ticker":"{{ str.tostring(syminfo.ticker)}}"
+//if bullcheck2st
+    //alert("Price exceeds 100. Close: {{plot_" + tostring(plotIndexClose) + "}}, Indicator 1: {{plot_" + tostring(plotIndexIndicator1) + "}}, Indicator 2: {{plot_" + tostring(plotIndexIndicator2) + "}}, Indicator 3: {{plot_" + tostring(plotIndexIndicato
